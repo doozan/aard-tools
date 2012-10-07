@@ -244,11 +244,15 @@ class Wiki(WikiDB):
         if "/" in fqname:
             return None
 
+import sys
 
 def total(inputfile, options):
     load_siteinfo(options.siteinfo)
     w = Wiki(inputfile, options.wiki_lang, options.rtl, options.filters)
-    for i, a in enumerate(islice(w.articles(), options.start, options.end)):
+    for i,a in enumerate(islice(w.articles(), options.start, options.end)):
+        if (i % 10000 == 0):
+            sys.stdout.write('\033[2KCalculating total number of articles...(%d)\r' % i)
+            sys.stdout.flush()
         pass
     try:
         return i+1
