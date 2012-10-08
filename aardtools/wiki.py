@@ -101,13 +101,14 @@ def mkredirect(title, redirect_target):
 def convert(title):
     try:
         text = wikidb.reader[title]
+        size = wikidb.reader.getitem_size(title)
 
         if not text:
             raise EmptyArticleError(title)
 
         redirect = wikidb.get_redirect(text)
         if redirect:
-            return mkredirect(title, redirect)
+            return mkredirect(title, redirect) + ( size, )
 
         mwobject = uparser.parseString(title=title,
                                        raw=text,
@@ -127,7 +128,7 @@ def convert(title):
         log.exception('Failed to process article %s', title.encode('utf8'))
         raise ConvertError(title)
     else:
-        return title, tojson((text.rstrip(), tags)), False, languagelinks
+        return title, tojson((text.rstrip(), tags)), False, languagelinks, size
 
 
 class BadRedirect(ConvertError): pass
@@ -244,20 +245,30 @@ class Wiki(WikiDB):
         if "/" in fqname:
             return None
 
+    def articles_sizes(self):
+        for a,s in self.reader.iteritems_sizes():
+            nsnum = self.nshandler.splitname(a)[0]
+            if nsnum==0:
+                yield a,s
+
 import sys
 
 def total(inputfile, options):
     load_siteinfo(options.siteinfo)
     w = Wiki(inputfile, options.wiki_lang, options.rtl, options.filters)
-    for i,a in enumerate(islice(w.articles(), options.start, options.end)):
-        if (i % 10000 == 0):
-            sys.stdout.write('\033[2KCalculating total number of articles...(%d)\r' % i)
+    articles = 0
+    total_bytes = 0
+    for (article, size) in islice(w.articles_sizes(), options.start, options.end):
+        articles += 1
+        total_bytes += size
+        if (articles % 10000 == 0):
+            sys.stdout.write('\033[2KCalculating total number of articles...(%d, %d)\r' % (articles, total_bytes))
             sys.stdout.flush()
         pass
     try:
-        return i+1
+        return articles,total_bytes
     except:
-        return 0
+        return 0,0
 
 
 def make_input(input_file_name):
@@ -426,6 +437,14 @@ class WikiParser():
             log.debug('Yielding "%s" for processing', title.encode('utf8'))
             yield title
 
+    def articles_sizes(self, f):
+        if self.start > 0:
+            log.info('Skipping to article %d', self.start)
+        _create_wikidb(f, self.lang, self.rtl, self.filters)
+        for (title, size) in islice(wikidb.articles_sizes(), self.start, self.end):
+            log.debug('Yielding "%s" for processing', title.encode('utf8'))
+            yield (title,size)
+
     def reset_pool(self, cdbdir, terminate=True):
         if self.pool and terminate:
             log.info('Terminating current worker pool')
@@ -443,8 +462,8 @@ class WikiParser():
         for a in articles:
             try:
                 result = convert(a)
-                title, serialized, redirect, langugagelinks = result
-                self.consumer.add_article(title, serialized, redirect)
+                title, serialized, redirect, langugagelinks, size = result
+                self.consumer.add_article(title, serialized, redirect, True, size)
                 self.process_languagelinks(title, langugagelinks)
             except EmptyArticleError, e:
                 self.consumer.empty_article(e.title)
@@ -470,12 +489,12 @@ class WikiParser():
                     try:
                         result = resulti.next(self.timeout)
                         iter_count += 1
-                        title, serialized, redirect, langugagelinks  = result
+                        title, serialized, redirect, langugagelinks, size  = result
 
                         if self.requested_article_count:
                             if  not redirect:
                                 real_article_count += 1
-                                self.consumer.add_article(title, serialized, redirect)
+                                self.consumer.add_article(title, serialized, redirect, True, size)
                                 self.process_languagelinks(title, langugagelinks)
                                 if real_article_count >= self.requested_article_count:
                                     try:
@@ -485,7 +504,7 @@ class WikiParser():
                                     finally:
                                         return
                         else:
-                            self.consumer.add_article(title, serialized, redirect)
+                            self.consumer.add_article(title, serialized, redirect, True, size)
                             self.process_languagelinks(title, langugagelinks)
                     except StopIteration:
                         break

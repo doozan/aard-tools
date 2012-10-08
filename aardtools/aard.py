@@ -17,7 +17,7 @@ from aarddict import dictionary
 def total(inputfile, options):
     d = dictionary.Volume(inputfile)
     d.close()
-    return len(d)
+    return len(d), 0
 
 def collect_articles(input_file, options, compiler):
     p = AardParser(compiler)

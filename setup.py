@@ -5,7 +5,7 @@ import aardtools
 
 install_requires = ['PyICU == 1.2',
                     'aarddict >= 0.9.0',
-                    'mwlib.cdb',
+                    'mwlib.cdb >= 0.1.1',
                     'mwlib.xhtml',
                     'pyyaml',
                     'mwlib >= 0.14.1']

@@ -47,7 +47,7 @@ def total(inputfile, options):
                 has_article = True
         if has_article:
             count += 1
-    return count
+    return count, 0
 
 
 def collect_articles(input_file, options, compiler):

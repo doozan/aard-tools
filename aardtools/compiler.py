@@ -292,6 +292,7 @@ class Stats(object):
 
     def __init__(self):
         self.total = 0
+        self.total_bytes = 0
         self.skipped = 0
         self.failed = 0
         self.empty = 0
@@ -300,6 +301,7 @@ class Stats(object):
         self.redirects = 0
         self.start_time = time.time()
         self.article_start_time = 0
+        self.processed_bytes = 0
 
     processed = property(lambda self: (self.articles +
                                        self.redirects +
@@ -447,7 +449,7 @@ class Compiler(object):
                      key, value)
 
     @utf8
-    def add_article(self, title, serialized_article, redirect=False, count=True):
+    def add_article(self, title, serialized_article, redirect=False, count=True, size=0):
         with article_add_lock:
             if not title:
                 log.warn('Blank title, ignoring article "%s"',
@@ -463,6 +465,7 @@ class Compiler(object):
                     self.stats.articles += 1
                 else:
                     self.stats.redirects += 1
+            self.stats.processed_bytes += size
             self.print_stats()
 
     @utf8
@@ -887,15 +890,37 @@ def print_legend():
     .fail('to').writeln(' - approximate number of articles that couldn\'t be converted fast enough (timed out)')
     .fail('f').writeln(' - number of articles that couldn\'t be converted (failed)'))
 
+from math import log as math_log
+unit_list = zip(['bytes', 'kB', 'MB', 'GB', 'TB', 'PB'], [0, 0, 1, 2, 2, 2])
+def sizeof_fmt(num):
+    """Human friendly sizes"""
+    if num > 1:
+        exponent = min(int(math_log(num, 1024)), len(unit_list) - 1)
+        quotient = float(num) / 1024**exponent
+        unit, num_decimals = unit_list[exponent]
+        format_string = '{:.%sf} {}' % (num_decimals)
+        return format_string.format(quotient, unit)
+    if num == 0:
+        return '0 bytes'
+    if num == 1:
+        return '1 byte'
 
 def print_progress(stats):
     try:
-        progress = '%.2f' % (100*float(stats.processed)/stats.total) if stats.total else '?'
+        if stats.total_bytes:
+            progress = '%.2f' % (100*float(stats.processed_bytes)/stats.total_bytes)
+        elif stats.total:
+            progress = '%.2f' % (100*float(stats.processed)/stats.total)
+        else:
+            progress = '?'
+        processed_bytes = '%s ' % sizeof_fmt(stats.processed_bytes) if stats.processed_bytes else ''
+
         (display
          .erase_line()
          .bold('%s%% ' % progress)
          .bold('t: %s ' % stats.elapsed)
          .bold('avg: %.1f/s ' % stats.average)
+         .ok('%s' % processed_bytes)
          .ok('a: %d r: %d ' % (stats.articles, stats.redirects))
          .warn('s: %d ' % stats.skipped)
          .warn('e: %d ' % stats.empty)
@@ -1089,9 +1114,14 @@ def main():
             compiler.stats.total = options.article_count
         else:
             for input_file in input_files:
-                compiler.stats.total += converter.total(converter.make_input(input_file), options)
+                (articles, size) = converter.total(converter.make_input(input_file), options)
+                compiler.stats.total += articles
+                compiler.stats.total_bytes += size
         compiler.stats.article_start_time = time.time()
-    display.erase_line().writeln('total: %d' % compiler.stats.total)
+    if compiler.stats.total_bytes:
+        display.erase_line().writeln('total: %d articles %s' % (compiler.stats.total, sizeof_fmt(compiler.stats.total_bytes)))
+    else:
+        display.erase_line().writeln('total: %d articles' % compiler.stats.total)
 
     if options.show_legend:
         print_legend()
